@@ -1,0 +1,748 @@
+---
+title: "Seurat_V5"
+author: "Tianyu"
+date: "2024-11-27"
+output: html_document
+---
+
+## Seurat pipeline
+
+```{r}
+getwd()
+```
+
+```{r}
+setwd('/Users/matianyu/R_project/Seurat_V5/')
+```
+
+```{r}
+# prepare workspace
+library(Seurat)
+library(SeuratWrappers)
+library(ggplot2)
+library(patchwork)
+library(magrittr)
+library(dplyr)
+```
+
+```{r}
+# load data
+pbmc.data <- Read10X(data.dir = "./filtered_gene_bc_matrices/hg19/")
+pbmc <- CreateSeuratObject(counts = pbmc.data, project = "pbmc3k", min.cells = 3, min.features = 200)
+pbmc
+# count matrix
+# pbmc[["RNA"]]$counts
+```
+
+```{r}
+# Lets examine a few genes in the first thirty cells
+pbmc.data[c("CD3D", "TCL1A", "MS4A1"), 1:30]
+
+```
+
+```{r}
+dense.size <- object.size(as.matrix(pbmc.data))
+dense.size
+```
+
+```{r}
+sparse.size <- object.size(pbmc.data)
+sparse.size
+```
+
+```{r}
+dense.size/sparse.size
+```
+
+```{r}
+# The [[ operator can add columns to object metadata. This is a great place to stash QC stats
+pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^MT-")
+```
+
+```{r}
+# Show QC metrics for the first 5 cells
+head(pbmc@meta.data, 5)
+```
+
+```{r}
+# Visualize QC metrics as a violin plot
+VlnPlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+
+plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+```
+
+```{r}
+pbmc <- subset(pbmc, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+```
+
+```{r}
+pbmc
+```
+
+```{r}
+pbmc <- NormalizeData(pbmc, normalization.method = "LogNormalize", scale.factor = 10000)
+#pbmc[["RNA"]]$counts
+```
+
+```{r}
+pbmc <- FindVariableFeatures(pbmc, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(pbmc), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(pbmc)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+```{r}
+all.genes <- rownames(pbmc)
+pbmc <- ScaleData(pbmc, features = all.genes)
+# pbmc[["RNA"]]$scale.data
+```
+
+```{r}
+# suggest alter by SCTransform method
+
+pbmc <- ScaleData(pbmc, vars.to.regress = "percent.mt")
+```
+
+```{r}
+pbmc <- RunPCA(pbmc, features = VariableFeatures(object = pbmc))
+# Examine and visualize PCA results a few different ways
+print(pbmc[["pca"]], dims = 1:5, nfeatures = 5)
+```
+
+```{r}
+VizDimLoadings(pbmc, dims = 1:2, reduction = "pca")
+```
+
+```{r}
+DimPlot(pbmc, reduction = "pca") + NoLegend()
+
+# DimPlot(pbmc, reduction = "pca",group.by = "orig.ident")
+```
+
+```{r}
+DimHeatmap(pbmc, dims = 1, cells = 500, balanced = TRUE)
+```
+
+```{r}
+DimHeatmap(pbmc, dims = 1:15, cells = 500, balanced = TRUE)
+```
+
+```{r}
+ElbowPlot(pbmc)
+```
+
+```{r}
+# Method 2 for determin the dimensionality of the dataset
+
+```
+
+```{r}
+# NOTE: This process can take a long time for big datasets, comment out for expediency. 
+pbmc <- JackStraw(pbmc, dims = 25,num.replicate = 100)
+```
+
+```{r}
+pbmc <- ScoreJackStraw(pbmc, dims = 1:25)
+JackStrawPlot(pbmc, dims = 1:25)
+```
+
+```{r}
+pbmc <- FindNeighbors(pbmc, dims = 1:10)
+```
+
+```{r}
+pbmc <- FindClusters(pbmc, resolution = 0.5)
+```
+
+```{r}
+# Look at cluster IDs of the first 5 cells
+head(Idents(pbmc), 5)
+```
+
+```{r}
+pbmc <- RunUMAP(pbmc, dims = 1:10)
+```
+
+```{r}
+# note that you can set `label = TRUE` or use the LabelClusters function to help label
+# individual clusters
+DimPlot(pbmc, reduction = "umap")
+
+```
+
+```{r}
+DimPlot(pbmc, reduction = "pca")
+```
+
+```{r}
+# pbmc <- RunTSNE(pbmc, dims = 1:10)
+# reduction = "tsne"
+```
+
+```{r}
+saveRDS(pbmc, file = "./pbmc_tutorial.rds")
+```
+
+```{r}
+# for single cluster
+# find all markers of cluster 2
+cluster2.markers <- FindMarkers(pbmc, ident.1 = 2)
+head(cluster2.markers, n = 5)
+```
+
+```{r}
+# design DE group
+# find all markers distinguishing cluster 5 from clusters 0 and 3
+cluster5.markers <- FindMarkers(pbmc, ident.1 = 5, ident.2 = c(0, 3))
+head(cluster5.markers, n = 5)
+```
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive
+# ones
+pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE)
+
+```
+
+```{r}
+pbmc.markers
+```
+
+```{r}
+pbmc.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1)
+```
+
+```{r}
+pbmc.markers
+```
+
+```{r}
+cluster0.markers <- FindMarkers(pbmc, ident.1 = 0, logfc.threshold = 0.25, test.use = "roc", only.pos = TRUE)
+```
+
+```{r}
+VlnPlot(pbmc, features = c("MS4A1", "CD79A"))
+```
+
+```{r}
+# you can plot raw counts as well
+VlnPlot(pbmc, features = c("NKG7", "PF4"), slot = "counts", log = TRUE)
+```
+
+```{r}
+FeaturePlot(pbmc, features = c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP",
+    "CD8A"))
+```
+
+```{r}
+pbmc.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1) %>%
+    slice_head(n = 10) %>%
+    ungroup() -> top10
+
+DoHeatmap(pbmc, features = top10$gene) + NoLegend()
+```
+
+```{r}
+new.cluster.ids <- c("Naive CD4 T", "CD14+ Mono", "Memory CD4 T", "B", "CD8 T", "FCGR3A+ Mono",
+    "NK", "DC", "Platelet")
+
+names(new.cluster.ids) <- levels(pbmc)
+
+pbmc <- RenameIdents(pbmc, new.cluster.ids)
+
+
+# pbmc <- StashIdent(pbmc, save.name = "original_cluster")
+
+# 恢复原始 cluster
+#Idents(pbmc) <- pbmc@meta.data$original_cluster
+
+
+DimPlot(pbmc, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+```
+
+```{r}
+head(pbmc@meta.data)
+```
+
+```{r}
+plot <- DimPlot(pbmc, reduction = "umap", label = TRUE, label.size = 4.5) + xlab("UMAP 1") + ylab("UMAP 2") +
+    theme(axis.title = element_text(size = 18), legend.text = element_text(size = 18)) + guides(colour = guide_legend(override.aes = list(size = 10)))
+ggsave(filename = "./images/pbmc3k_umap.jpg", height = 7, width = 12, plot = plot, quality = 50)
+```
+
+```{r}
+saveRDS(pbmc, file = "./pbmc3k_final.rds")
+```
+
+```{r}
+
+```
+
+```{r}
+# test classical marker gene expression cluster
+
+FeaturePlot(pbmc, features = c("IL7R","CCR7","CD14","LYZ","S100A4","MS4A1","CD8A","FCGR3A","MS4A7","GNLY","NKG7","FCER1A","CST3","PPBP"))
+```
+
+```{r}
+
+```
+
+```{r}
+pbmc
+```
+
+```{r}
+# Visulization part
+```
+
+```{r}
+# 随机分组 size = ncol(pbmc3k.final) -> 抽样总数为细胞数量
+pbmc$groups <- sample(c("group1", "group2"), size = ncol(pbmc), replace = TRUE)
+
+# 可视化关键marker基因
+features <- c("LYZ", "CCL5", "IL32", "PTPRCAP", "FCGR3A", "PF4")
+```
+
+```{r}
+# Ridge plots - from ggridges. Visualize single cell expression distributions in each cluster
+RidgePlot(pbmc, features = features, ncol = 2)
+```
+
+```{r}
+# Violin plot - Visualize single cell expression distributions in each cluster
+VlnPlot(pbmc, features = features)
+```
+
+```{r}
+# Feature plot - visualize feature expression in low-dimensional space
+FeaturePlot(pbmc, features = features)
+```
+
+```{r}
+# Dot plots - the size of the dot corresponds to the percentage of cells expressing the
+# feature in each cluster. The color represents the average expression level
+DotPlot(pbmc, features = features) + RotatedAxis()
+```
+
+```{r}
+# Single cell heatmap of feature expression
+DoHeatmap(subset(pbmc, downsample = 100), features = features, size = 3)
+```
+
+```{r}
+# Plot a legend to map colors to expression levels
+FeaturePlot(pbmc, features = "MS4A1")
+```
+
+```{r}
+# Adjust the contrast in the plot
+FeaturePlot(pbmc, features = "MS4A1", min.cutoff = 1, max.cutoff = 3)
+```
+
+```{r}
+# Calculate feature-specific contrast levels based on quantiles of non-zero expression.
+# Particularly useful when plotting multiple markers
+FeaturePlot(pbmc, features = c("MS4A1", "PTPRCAP"), min.cutoff = "q10", max.cutoff = "q90")
+```
+
+```{r}
+# Visualize co-expression of two features simultaneously
+FeaturePlot(pbmc, features = c("MS4A1", "CD79A"), blend = TRUE)
+```
+
+```{r}
+# Split visualization to view expression by groups (replaces FeatureHeatmap)
+FeaturePlot(pbmc, features = c("MS4A1", "CD79A"), split.by = "groups")& scale_color_viridis_c()
+```
+
+```{r}
+# Violin plots can also be split on some variable. Simply add the splitting variable to object
+# metadata and pass it to the split.by argument
+VlnPlot(pbmc, features = "percent.mt", split.by = "groups")
+```
+
+```{r}
+# SplitDotPlotGG has been replaced with the `split.by` parameter for DotPlot
+DotPlot(pbmc, features = features, split.by = "groups") + RotatedAxis()
+```
+
+```{r}
+# DoHeatmap now shows a grouping bar, splitting the heatmap into groups or clusters. This can
+# be changed with the `group.by` parameter
+DoHeatmap(pbmc, features = VariableFeatures(pbmc)[1:100], cells = 1:500, size = 4,
+    angle = 90) + NoLegend()
+```
+
+```{r}
+
+```
+
+```{r}
+# Step for Moncle3 pseodutime analysis
+library(monocle3)
+
+pbmc <- readRDS("./output/pbmc3k_final.rds")
+
+DimPlot(pbmc, reduction = "umap")
+
+```
+
+```{r}
+# 查看 Seurat 对象的所有 assay
+names(pbmc)
+
+# meta
+colnames(pbmc@meta.data)
+
+```
+
+```{r}
+pbmc.cds <- as.cell_data_set(pbmc)
+pbmc.cds <- cluster_cells(cds = pbmc.cds, reduction_method = "UMAP")
+
+```
+
+```{r}
+p1 <- plot_cells(pbmc.cds, show_trajectory_graph = FALSE)
+p2 <- plot_cells(pbmc.cds, color_cells_by = "partition", show_trajectory_graph = FALSE)
+wrap_plots(p1, p2)
+```
+
+```{r}
+pbmc.cds <- learn_graph(pbmc.cds, use_partition = TRUE)
+```
+
+```{r}
+plot_cells(pbmc.cds, label_groups_by_cluster = FALSE, label_leaves = FALSE, label_branch_points = FALSE)
+```
+
+```{r}
+plot_cells(pbmc.cds, label_groups_by_cluster = FALSE, label_leaves = FALSE, label_branch_points = TRUE, color_cells_by = 'seurat_clusters')
+```
+
+```{r}
+
+#pbmc.cds <- order_cells(pbmc.cds, reduction_method = "UMAP")
+
+# root_cell for curate initial cellList
+```
+
+```{r}
+# plot trajectories colored by pseudotime
+plot_cells(
+  cds = pbmc.cds,
+  color_cells_by = "pseudotime",
+  show_trajectory_graph = TRUE
+)
+```
+
+```{r}
+# 提取伪时间值并添加到 Seurat 对象
+pbmc <- AddMetaData(
+  object = pbmc,
+  metadata = pbmc.cds@principal_graph_aux@listData$UMAP$pseudotime,
+  col.name = "PBMC"
+)
+```
+
+```{r}
+FeaturePlot(pbmc, c("PBMC"), pt.size = 0.1) & scale_color_viridis_c()
+```
+
+```{r}
+# Slingshot
+
+library(slingshot)
+library(SingleCellExperiment)
+library(RColorBrewer)
+
+
+```
+
+```{r}
+# seurat对象数据格式转换
+sce <- as.SingleCellExperiment(pbmc)
+sce
+```
+
+```{r}
+# slingshot分析
+sce <- slingshot(data = sce, 
+                 clusterLabels = 'seurat_clusters',
+                 reducedDim = 'UMAP',
+                 start.clus = NULL, # 可指定起点亚群
+                 end.clus = NULL # 可指定终点亚群
+                 )
+```
+
+```{r}
+colnames(colData(sce))
+```
+
+```{r}
+summary(sce$slingPseudotime_1)
+```
+
+```{r}
+pal <- c(RColorBrewer::brewer.pal(9, "Set1"), RColorBrewer::brewer.pal(8, "Set2"))
+
+# 通过“type”参数查看基于聚类的最小生成树最初是如何估计谱系结构的
+plot(reducedDims(sce)$UMAP,col = pal[sce$seurat_clusters],cex = 0.5, pch=16, asp=1)
+
+```
+
+```{r}
+#lin1 <- getLineages(sce, 
+#                    clusterLabels = "seurat_clusters", 
+                    #start.clus = 'Pi16',#可指定起始细胞簇
+                    #end.clus=c("Comp","Col15a1","Ccl19", "Coch", "Cxcl12", "Fbln1", "Bmp4", "Npnt", "Hhip"),#可指定终点细胞簇
+#                    reducedDim = "UMAP")
+
+
+```
+
+```{r}
+plot.new()
+plot(reducedDims(sce)$UMAP,col = brewer.pal(10,'Paired')[sce$seurat_clusters],pch=16,asp=1)
+
+lines(SlingshotDataSet(sce), lwd=2,col = 'black')
+```
+
+```{r}
+colnames(colData(sce))
+```
+
+```{r}
+# fit a GAM with a smooth spline term for pseudotime
+library(gam)
+
+sling.pseu<-data.frame(sce$ident,sce$slingPseudotime_1,sce$slingPseudotime_2,sce$slingPseudotime_3,sce$slingPseudotime_4)
+
+rownames(sling.pseu)<-colnames(sce)
+
+head(sling.pseu)
+```
+
+```{r}
+t <- sling.pseu$sce.slingPseudotime_4
+sling.cells <- rownames(sling.pseu)[!is.na(t)] 
+head(sling.cells)
+```
+
+```{r}
+table(sling.pseu[sling.cells,]$sce.ident)
+```
+
+```{r}
+##gene expression along pseudotime
+test<-FetchData(pbmc,c("ident","CCL5"))
+
+test<-test[sling.cells,]
+
+test$pseu<-sling.pseu[sling.cells,]$sce.slingPseudotime_4
+
+ggplot(test,aes(pseu,CCL5))+ geom_point(aes(colour=factor(ident)),alpha = 0.8)+ 
+    geom_smooth(colour="gray30",size=1.2,fullrange = TRUE) +
+    theme_bw()
+```
+
+```{r}
+
+# Find temporally expressed genes
+
+
+# Only look at the transcription factors
+# Identify the variable genes by ranking all genes by their variance.
+
+# log data
+Y <- pbmc[["RNA"]]$data
+
+allTFs<-read.table('./TFs_hg19_RcisTarget_hTF_TFDB.txt') 
+
+allTFs<-as.character(allTFs$V1)
+
+tf.used<-intersect(allTFs,rownames(sce))
+
+
+# 取谱系中的cell数量为GMM拟合时与矩阵细胞数维度匹配
+Y <- Y[tf.used, sling.cells]  # only counts for TFs
+
+dim(Y)
+
+
+```
+
+```{r}
+# Fit GAM for each gene using pseudotime as independent variable.
+pseu.t <- sce$slingPseudotime_4
+pseu.t <- pseu.t[!is.na(pseu.t)]
+
+smooth.data<-array(c(0),dim = c(length(sling.cells),length(tf.used)))
+rownames(smooth.data)<-sling.cells
+colnames(smooth.data)<-tf.used
+
+gam.pval<-as.data.frame(array(c(0),dim = c(length(tf.used),2)))
+gam.pval[,1]<-tf.used
+
+rownames(gam.pval)<-tf.used;
+colnames(gam.pval)<-c('TF_used','p_value')
+
+
+```
+
+```{r}
+for (j in 1:length(tf.used)) {
+    d <- data.frame(z=Y[j,], t.used=pseu.t)
+    tmp<-gam(Y[j,] ~ s(t.used,5), data=d) 
+    # gam(z ~ lo(t), data=d) #loess
+    gam.pval[j,2]<-as.numeric(summary(tmp)[4][[1]][1,5])
+    smooth.data[,j]<-tmp$fitted.values
+}
+```
+
+```{r}
+gam.pval<-with(gam.pval,gam.pval[order(p_value),])
+topgenes <- rownames(subset(gam.pval,p_value<=1e-5)) #select significantly changed genes
+heatdata <- t(smooth.data[order(pseu.t, na.last = NA),topgenes]) 
+```
+
+```{r}
+max.g<-apply(heatdata,1,which.max) 
+min.g<-apply(heatdata,1,which.min) 
+genes<-as.data.frame(cbind(max.g,min.g))
+genes<-with(genes,genes[order(max.g,min.g),])
+```
+
+```{r}
+used.genes<-as.character(rownames(genes))
+print(length(used.genes))
+```
+
+```{r}
+heatdata <- t(smooth.data[order(pseu.t, na.last = NA),used.genes])
+dim(heatdata)
+```
+
+```{r}
+library(RColorBrewer)
+library(plotly)
+library(pheatmap)
+
+s=3
+pheatmap(heatdata,scale = "row", cluster_rows =F,cluster_cols = F,col= colorRampPalette(c("navy","white","red"))(200),#
+legend = TRUE,show_rownames = T, show_colnames = F,
+border_color=NA,fontsize = s,fontsize_row = s,fontsize_col = s)
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+# Monocle3 tutorial
+
+expression_matrix <- readRDS(url("https://depts.washington.edu:/trapnell-lab/software/monocle3/celegans/data/packer_embryo_expression.rds"))
+cell_metadata <- readRDS(url("https://depts.washington.edu:/trapnell-lab/software/monocle3/celegans/data/packer_embryo_colData.rds"))
+gene_annotation <- readRDS(url("https://depts.washington.edu:/trapnell-lab/software/monocle3/celegans/data/packer_embryo_rowData.rds"))
+
+cds <- new_cell_data_set(expression_matrix,
+                         cell_metadata = cell_metadata,
+                         gene_metadata = gene_annotation)
+
+cds <- preprocess_cds(cds, num_dim = 50)
+cds <- align_cds(cds, alignment_group = "batch", residual_model_formula_str = "~ bg.300.loading + bg.400.loading + bg.500.1.loading + bg.500.2.loading + bg.r17.loading + bg.b01.loading + bg.b02.loading")
+
+
+```
+
+```{r}
+cds <- reduce_dimension(cds)
+plot_cells(cds, label_groups_by_cluster=FALSE,  color_cells_by = "cell.type")
+```
+
+```{r}
+ciliated_genes <- c("che-1",
+                    "hlh-17",
+                    "nhr-6",
+                    "dmd-6",
+                    "ceh-36",
+                    "ham-1")
+
+plot_cells(cds,
+           genes=ciliated_genes,
+           label_cell_groups=FALSE,
+           show_trajectory_graph=FALSE)
+```
+
+```{r}
+cds <- cluster_cells(cds)
+plot_cells(cds, color_cells_by = "partition")
+```
+
+```{r}
+cds <- learn_graph(cds)
+plot_cells(cds,
+           color_cells_by = "cell.type",
+           label_groups_by_cluster=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE)
+```
+
+```{r}
+plot_cells(cds,
+           color_cells_by = "embryo.time.bin",
+           label_cell_groups=FALSE,
+           label_leaves=TRUE,
+           label_branch_points=TRUE,
+           graph_label_size=1.5)
+```
+
+```{r}
+#cds <- order_cells(cds)
+```
+
+```{r}
+plot_cells(cds,
+           color_cells_by = "pseudotime",
+           label_cell_groups=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE,
+           graph_label_size=1.5)
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
